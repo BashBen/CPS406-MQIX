@@ -30,7 +30,6 @@ class Map:
 class Player:
   """
   edge_type: which segment the player is on. 0 -> bottom, 1 -> left, 2 -> top, 3 -> right
-
   """
   def __init__(self, x, y, vel_x, vel_y, starting_segment):
     self.lives = 3
@@ -40,15 +39,88 @@ class Player:
     self.vel_y = vel_y
     self.incursion = False
     self.segment = starting_segment
-    self.horizontal = True
+    self.horizontal = True if starting_segment in [0, 2] else False
 
-  def move(self):
-    if self.horizontal:
-      self.x += self.vel_x
-    else: self.y += self.vel_y
+  def move(self, map_edges):
+    current_edge = map_edges[0]
+    min_x = min(point[0] for point in current_edge)
+    max_x = max(point[0] for point in current_edge)
+    min_y = min(point[1] for point in current_edge)
+    max_y = max(point[1] for point in current_edge)
+
+    #apply vel of 5 with bounds
+    if self.segment == 0 or self.segment == 2:  #Bottom or Top (horizontal)
+      self.x += self.vel_x * 5
+      self.y = max_y if self.segment == 0 else min_y  #Lock y to edge
+      if self.x <= min_x:
+        self.x = min_x
+        self.handle_corner(map_edges)
+      elif self.x >= max_x:
+        self.x = max_x
+        self.handle_corner(map_edges)
+    elif self.segment == 1 or self.segment == 3:  #Left or Right (vertical)
+      self.y += self.vel_y * 5
+      self.x = min_x if self.segment == 1 else max_x  #Lock x to edge
+      if self.y <= min_y:
+        self.y = min_y
+        self.handle_corner(map_edges)
+      elif self.y >= max_y:
+        self.y = max_y
+        self.handle_corner(map_edges)
+
+  def handle_corner(self, map_edges):
+    current_edge = map_edges[0]
+    corners = current_edge
+
+    #check which corner we're at and transition
+    if self.x == corners[0][0] and self.y == corners[0][1]:  # (200, 400) - Bottom left or Left bottom
+      if self.segment == 0 and self.vel_x < 0:  # Bottom to Left
+        self.segment = 1
+        self.horizontal = False
+        self.vel_x = 0
+        self.vel_y = 0
+      if self.segment == 1 and self.vel_y > 0:  # Left to Bottom
+        self.segment = 0
+        self.horizontal = True
+        self.vel_x = 0
+        self.vel_y = 0
+    if self.x == corners[3][0] and self.y == corners[3][1]:  # (400, 400) - Bottom right or Right bottom
+        if self.segment == 0 and self.vel_x > 0:  # Bottom to Right
+          self.segment = 3
+          self.horizontal = False
+          self.vel_x = 0
+          self.vel_y = 0
+        if self.segment == 3 and self.vel_y > 0:  # Right to Bottom
+          self.segment = 0
+          self.horizontal = True
+          self.vel_x = 0
+          self.vel_y = 0
+    if self.x == corners[2][0] and self.y == corners[2][1]:  # (400, 200) - Right top or Top right
+        if self.segment == 3 and self.vel_y < 0:  # Right to Top
+          self.segment = 2
+          self.horizontal = True
+          self.vel_x = 0
+          self.vel_y = 0
+        if self.segment == 2 and self.vel_y > 0:  # Top to Right
+          self.segment = 3
+          self.horizontal = False
+          self.vel_x = 0
+          self.vel_y = 0
+    if self.x == corners[1][0] and self.y == corners[1][1]:  # (200, 200) - Top left or Left top
+        if self.segment == 2 and self.vel_x < 0:  # Top to Left
+          self.segment = 1
+          self.horizontal = False
+          self.vel_x = 0
+          self.vel_y = 0
+        if self.segment == 1 and self.vel_y < 0:  # Left to Top
+          self.segment = 2
+          self.horizontal = True
+          self.vel_x = 0
+          self.vel_y = 0
+
 
   def draw(self, surface):
-    self.move()
+    self.move(map1.edges)
     pygame.draw.circle(surface, "forestgreen", (self.x, self.y), 10)
 
   def start_incursion(self):
@@ -60,7 +132,10 @@ class Player:
   def is_touching_corner(self, corners):
     # Should check if the player has reach an intersection
     pass
-
+  
+  def lose_life(self):
+    if self.lives > 0:
+      self.lives -= 1
 
 
 # HELPER FUNCTIONS
@@ -79,13 +154,45 @@ def is_between(point, segment):
     else: return False
   else: return False
 
-player1 = Player(300, 400, 0, 0, 5)
+#---------------------------------------------------------------
+def draw_start_screen(surface):
+  surface.fill("white")
+  title = font.render("Qix Game", True, "black")
+  surface.blit(title, (600 // 2 - title.get_width() // 2, 100))
+  instructions = [
+      font.render("Use Arrow Keys to move", True, "black"),
+      font.render("Press Spacebar to start incursion", True, "black"),
+      font.render("Claim 50% of the field to win", True, "black")
+  ]
+  for i, line in enumerate(instructions):
+      surface.blit(line, (600 // 2 - line.get_width() // 2, 200 + i * 40))
+
+  button_rect = pygame.Rect(250, 400, 100, 50)
+  pygame.draw.rect(surface, "forestgreen", button_rect)
+  button_text = font.render("Start", True, "white")
+  text_rect = button_text.get_rect(center=button_rect.center)
+  surface.blit(button_text, text_rect)
+
+  return button_rect
+
+def draw_lives(surface, player):
+  heart_icon = font.render("♥", True, "red")
+  lives_text = font.render(f" {player.lives}", True, "black")
+  surface.blit(heart_icon, (10, 10))
+  surface.blit(lives_text, (30, 10))
+
+#--------------------------------------------------------------
 
 # pygame setup
 pygame.init()
 screen = pygame.display.set_mode((600, 600))
 clock = pygame.time.Clock()
 running = True
+game_state = "start"
+player1 = Player(300, 400, 0, 0, 0)
+map1 = Map(100, ((200, 400), (200, 200), (400, 200), (400, 400)))
+#map1.add_edge(((250, 400), (250, 300), (350, 300), (350, 400)))
+font = pygame.font.SysFont("Arial", 30)
 
 while running:
   # poll for events
@@ -93,34 +200,41 @@ while running:
   for event in pygame.event.get():
     if event.type == pygame.QUIT:
       running = False
-    elif event.type == pygame.KEYDOWN and player1.vel_x == 0 and player1.vel_y == 0: # if a key is pressed, and velocity is already 0
+    elif event.type == pygame.MOUSEBUTTONDOWN and game_state == "start":
+      if start_button.collidepoint(event.pos):
+        game_state = "playing"
+    elif event.type == pygame.KEYDOWN and game_state == "playing": # if a key is pressed
       if event.key == pygame.K_LEFT:
         player1.vel_x = -1
       elif event.key == pygame.K_RIGHT:
         player1.vel_x = 1
-      if event.key == pygame.K_UP:
+      elif event.key == pygame.K_UP:
         player1.vel_y = -1
       elif event.key == pygame.K_DOWN:
         player1.vel_y = 1
-    else: 
+      #test case for when player gets hit (press l)
+      elif event.type == pygame.KEYDOWN and game_state == "playing" and event.key == pygame.K_l:
+        player1.lose_life()
+    elif event.type == pygame.KEYUP and game_state == "playing": 
       player1.vel_x = 0
       player1.vel_y = 0
+    
 
-  # fill the screen with a color to wipe away anything from last frame
-  screen.fill("white")
-
+  #----------------------------------------------------------
   # RENDER YOUR GAME HERE
-  map1 = Map(100, ((200, 400), (200, 200), (400, 200), (400, 400)))
-  map1.add_edge(((250, 400), (250, 300), (350, 300), (350, 400)))
+  if game_state == "start":
+    start_button = draw_start_screen(screen)
+  elif game_state == "playing":
+    screen.fill("white")
+    map1.draw(screen)
+    player1.draw(screen)
+    draw_lives(screen, player1)
 
-  map1.draw(screen)
-
-  player1.draw(screen)
+#------------------------------------------------------------
   # pygame.draw.circle(screen, "red", (100, 100), 40)
 
   # flip() the display to put your work on screen
   pygame.display.flip()
-
   clock.tick(60)  # limits FPS to 60
 
 pygame.quit()
