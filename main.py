@@ -38,35 +38,53 @@ class Player:
     self.vel_x = vel_x
     self.vel_y = vel_y
     self.incursion = False
+    self.path = []
     self.segment = starting_segment
     self.horizontal = True if starting_segment in [0, 2] else False
 
   def move(self, map_edges):
     current_edge = map_edges[0]
-    min_x = min(point[0] for point in current_edge)
-    max_x = max(point[0] for point in current_edge)
-    min_y = min(point[1] for point in current_edge)
-    max_y = max(point[1] for point in current_edge)
+    min_x, max_x = 200, 400
+    min_y, max_y = 200, 400
 
     #apply vel of 5 with bounds
-    if self.segment == 0 or self.segment == 2:  #Bottom or Top (horizontal)
+    if self.incursion:
+      #free movement
       self.x += self.vel_x * 5
-      self.y = max_y if self.segment == 0 else min_y  #Lock y to edge
-      if self.x <= min_x:
-        self.x = min_x
-        self.handle_corner(map_edges)
-      elif self.x >= max_x:
-        self.x = max_x
-        self.handle_corner(map_edges)
-    elif self.segment == 1 or self.segment == 3:  #Left or Right (vertical)
       self.y += self.vel_y * 5
-      self.x = min_x if self.segment == 1 else max_x  #Lock x to edge
-      if self.y <= min_y:
-        self.y = min_y
-        self.handle_corner(map_edges)
-      elif self.y >= max_y:
-        self.y = max_y
-        self.handle_corner(map_edges)
+      self.path.append((self.x, self.y))  # Add position to path
+      self.x = max(min_x, min(max_x, self.x))
+      self.y = max(min_y, min(max_y, self.y))
+
+      # Check if touching an edge
+      for i in range(len(current_edge)):
+        segment = (current_edge[i], current_edge[(i + 1) % len(current_edge)])
+        if is_between((self.x, self.y), segment) and (self.x, self.y) != self.path[0]:  # Not the start point
+          #print(f"Hit edge at {self.x, self.y} on segment {segment}")
+          self.end_incursion(map_edges, segment)
+          break
+                
+    else:
+      if self.segment == 0 or self.segment == 2:  #Bottom or Top (horizontal)
+        self.x += self.vel_x * 5
+        if not is_between((self.x, self.y), (current_edge[self.segment], current_edge[(self.segment + 1) % 4])):
+          self.y = max_y if self.segment == 0 else min_y
+        if self.x <= min_x:
+          self.x = min_x
+          self.handle_corner(map_edges)
+        elif self.x >= max_x:
+          self.x = max_x
+          self.handle_corner(map_edges)
+      elif self.segment == 1 or self.segment == 3:  #Left or Right (vertical)
+        self.y += self.vel_y * 5
+        if not is_between((self.x, self.y), (current_edge[self.segment], current_edge[(self.segment + 1) % 4])):
+          self.x = min_x if self.segment == 1 else max_x
+        if self.y <= min_y:
+          self.y = min_y
+          self.handle_corner(map_edges)
+        elif self.y >= max_y:
+          self.y = max_y
+          self.handle_corner(map_edges)
 
   def handle_corner(self, map_edges):
     current_edge = map_edges[0]
@@ -118,10 +136,50 @@ class Player:
           self.vel_x = 0
           self.vel_y = 0
 
+  def end_incursion(self, map_edges, hit_segment):
+    start_point = self.path[0]
+    end_point = (self.x, self.y)
+    self.incursion = False
+    self.vel_x = 0
+    self.vel_y = 0
+
+    # Update segment based on hit edge
+    current_edge = map_edges[0]
+    for i in range(len(current_edge)):
+      segment = (current_edge[i], current_edge[(i + 1) % len(current_edge)])
+      if segment == hit_segment:
+        self.segment = i
+        self.horizontal = True if self.segment in [0, 2] else False
+        break
+
+    # Form new polygon
+    new_edge = self.path.copy()
+    start_idx = None
+    end_idx = None
+    for i, point in enumerate(current_edge):
+      if point == start_point:
+        start_idx = i
+      if point == end_point:
+        end_idx = i
+
+    if start_idx is not None and end_idx is not None:
+      if start_idx < end_idx:
+          edge_points = current_edge[start_idx:end_idx + 1]
+      else:
+          edge_points = current_edge[start_idx:] + current_edge[:end_idx + 1]
+      new_edge.extend(edge_points[1:])
+    else:
+      new_edge.append(start_point)
+
+    map1.add_edge(new_edge)
+    self.path = []
 
   def draw(self, surface):
     self.move(map1.edges)
     pygame.draw.circle(surface, "forestgreen", (self.x, self.y), 10)
+
+    if self.incursion and len(self.path) > 1:
+      pygame.draw.lines(surface, "red", False, self.path, 2)
 
   def start_incursion(self):
     pass
@@ -204,14 +262,27 @@ while running:
       if start_button.collidepoint(event.pos):
         game_state = "playing"
     elif event.type == pygame.KEYDOWN and game_state == "playing": # if a key is pressed
-      if event.key == pygame.K_LEFT:
-        player1.vel_x = -1
-      elif event.key == pygame.K_RIGHT:
-        player1.vel_x = 1
-      elif event.key == pygame.K_UP:
-        player1.vel_y = -1
-      elif event.key == pygame.K_DOWN:
-        player1.vel_y = 1
+      if player1.incursion:
+        if event.key == pygame.K_LEFT:
+          player1.vel_x = -1
+        elif event.key == pygame.K_RIGHT:
+          player1.vel_x = 1
+        elif event.key == pygame.K_UP:
+          player1.vel_y = -1
+        elif event.key == pygame.K_DOWN:
+          player1.vel_y = 1
+      else:
+        if event.key == pygame.K_LEFT:
+          player1.vel_x = -1
+        elif event.key == pygame.K_RIGHT:
+          player1.vel_x = 1
+        elif event.key == pygame.K_UP:
+          player1.vel_y = -1
+        elif event.key == pygame.K_DOWN:
+          player1.vel_y = 1
+      if event.key == pygame.K_SPACE and not player1.incursion:
+        player1.incursion = True
+        player1.path = [(player1.x, player1.y)]  # Start path at current position
       #test case for when player gets hit (press l)
       elif event.type == pygame.KEYDOWN and game_state == "playing" and event.key == pygame.K_l:
         player1.lose_life()
