@@ -12,12 +12,13 @@ class Map:
   area_remaining: uncaptured area left in the map
   complete: True if required percentage of area is captured, False otherwise
   """
-  def __init__(self, size, init_edges, init_player, init_enemies):
+  def __init__(self, size, init_edges, init_player, init_enemies, target_area):
     self.size = size
     self.edges = [init_edges]
     self.area_remaining = size*size
     self.init_player = init_player
     self.enemies = init_enemies
+    self.target = target_area
     self.complete = False
 
   def draw(self, surface):
@@ -30,6 +31,17 @@ class Map:
 
   def add_edge(self, edge):
     self.edges.append(edge)
+    dx = 0
+    dy = 0
+    for i in range(len(edge)-1):
+      if edge[i][0] != edge[i+1][0] and dx == 0:
+        dx = abs(edge[i][0] - edge[i+1][0])
+      elif edge[i][1] != edge[i+1][1] and dy == 0:
+        dy = abs(edge[i][1] - edge[i+1][1])
+    area = dx * dy
+    self.area_remaining -= area
+    if self.area_remaining <= (self.size**2)*self.target:
+      self.complete = True
 
 class Player:
   """
@@ -47,11 +59,12 @@ class Player:
     self.segment = starting_segment
     self.horizontal = True if starting_segment in [0, 2] else False
     self.hitbox = pygame.Rect(x-10, y-10, 2*self.radius, 2*self.radius)
+    self.invincible = 0
 
   def move(self, map_edges):
     current_edge = map_edges[0]
-    min_x, max_x = 200, 400
-    min_y, max_y = 200, 400
+    min_x, max_x = map_edges[0][0][0], map_edges[0][2][0]
+    min_y, max_y = map_edges[0][2][1], map_edges[0][0][1]
 
     #apply vel of 5 with bounds
     if self.incursion:
@@ -189,8 +202,34 @@ class Player:
 
   def update(self, surface, map: Map, enemies):
     self.move(map.edges)
-    if self.is_touching_enemy(enemies):
-      self.lose_life()
+    if self.invincible == 0:
+      if self.incursion:
+        # Check if any Qix are touching an active incursion
+        touching_path = False
+        for enemy in enemies:
+          if touching_path == True:
+            break
+          elif type(enemy) == Sparc:
+            continue
+          for i in range(len(self.path)-1):
+            if enemy.hitbox.clipline((self.path[i], self.path[i+1])) != ():
+              touching_path = True
+              break
+
+        if self.is_touching_enemy(enemies) or touching_path:
+          self.x = self.path[0][0]
+          self.y = self.path[0][1]
+          self.incursion = False
+          self.path = []
+          self.lose_life()
+          self.invincible += 1
+      elif self.is_touching_enemy(enemies):
+        self.lose_life()
+        self.invincible += 1
+    elif 0 < self.invincible < 50:
+      self.invincible += 1
+    elif self.invincible == 50:
+      self.invincible = 0
     self.draw(surface)
 
   def start_incursion(self):
@@ -211,47 +250,63 @@ class Player:
 
 
 class Qix:
-  def __init__(self, x, y, starting_segment):
+  def __init__(self, x, y):
     self.x = x
     self.y = y
     self.vel_x = 0
     self.vel_y = 0
     self.radius = 10
-    self.segment = starting_segment
-    self.horizontal = True if starting_segment in [0, 2] else False
     self.hitbox = pygame.Rect(x-self.radius, y-self.radius, 2*self.radius, 2*self.radius)
+    self._moving = 0
 
-  def move(self):
-    min_x, max_x = 200, 400
-    min_y, max_y = 200, 400
-    distance = 0
+  def move(self, map_edges):
+    min_x, max_x = map_edges[0][0][0] + 25, map_edges[0][2][0] - 25
+    min_y, max_y = map_edges[0][2][1] + 25, map_edges[0][0][1] - 25
 
-    if distance > 0:
-      self.x += self.vel_x
-      self.y += self.vel_y
-    elif distance == 0:
-      distance = int((random.random() + 1) * 60)
+    if self._moving == 0:
+      self._moving = int((random.random() + 1) * 30)
       direction = random.randint(1, 4)
       if direction == 1:
         self.vel_x = 1
+        self.vel_y = 0
       elif direction == 2:
         self.vel_x = -1
+        self.vel_y = 0
       elif direction == 3:
         self.vel_y = 1
-      else: self.vel_y = -1
+        self.vel_x = 0
+      else: 
+        self.vel_y = -1
+        self.vel_x = 0
+
+    if self.x < min_x:
+      self.x = min_x
+    elif self.x > max_x:
+      self.x = max_x
+    else:
+      self.x += self.vel_x
+    
+    if self.y < min_y:
+      self.y = min_y
+    elif self.y > max_y:
+      self.y = max_y
+    else:
+      self.y += self.vel_y
+
+    self._moving -= 1
     self.hitbox = pygame.Rect(self.x-self.radius, self.y-self.radius, 2*self.radius, 2*self.radius)
 
-  def draw(self, surface, player):
-    self.move()
+  def draw(self, surface, player, map):
+    self.move(map.edges)
     pygame.draw.rect(surface, 'red', self.hitbox, 0)
 
 
 class Sparc:
-  def __init__(self, x, y, starting_segment):
+  def __init__(self, x, y, starting_segment, init_vel):
     self.x = x
     self.y = y
-    self.vel_x = 0
-    self.vel_y = 0
+    self.vel_x = init_vel
+    self.vel_y = init_vel
     self.radius = 10
     self.segment = starting_segment
     self.horizontal = True if starting_segment in [0, 2] else False
@@ -274,8 +329,8 @@ class Sparc:
 
   def move(self, map_edges, player: Player):
     current_edge = map_edges[0]
-    min_x, max_x = 200, 400
-    min_y, max_y = 200, 400
+    min_x, max_x = map_edges[0][0][0], map_edges[0][2][0]
+    min_y, max_y = map_edges[0][2][1], map_edges[0][0][1]
     direction = self.is_chasing(player)
 
     if direction != None:
@@ -304,7 +359,7 @@ class Sparc:
         handle_corner(self, map_edges)
     self.hitbox = pygame.Rect(self.x-self.radius, self.y-self.radius, 2*self.radius, 2*self.radius)
 
-  def draw(self, surface, player):
+  def draw(self, surface, player, map):
     self.move(map.edges, player)
     pygame.draw.rect(surface, 'purple', self.hitbox, 0)
 
@@ -376,6 +431,30 @@ def handle_corner(player: Player, map_edges):
         player.vel_x = 1
         player.vel_y = 0
 
+
+def draw_progress_bar(surface, map: Map):
+    total_area = map.size * map.size
+    captured_area = total_area - map.area_remaining
+    progress =  captured_area / total_area
+    
+    # Draw progress bar background
+    bar_width = 200
+    bar_height = 20
+    bar_x = 600 // 2 - bar_width // 2
+    bar_y = 550
+    pygame.draw.rect(surface, "gray", (bar_x, bar_y, bar_width, bar_height))
+
+    # Draw target progress bar
+    pygame.draw.rect(surface, "red", (bar_x+bar_width*map.target, bar_y, 2, bar_height))
+    
+    # Draw progress
+    progress_width = int(bar_width * progress)
+    pygame.draw.rect(surface, "forestgreen", (bar_x, bar_y, progress_width, bar_height))
+    
+    # Draw text
+    progress_text = font.render(f"{int(progress * 100)}%", True, "black")
+    surface.blit(progress_text, (bar_x + bar_width + 10, bar_y))
+
 #---------------------------------------------------------------
 def draw_start_screen(surface):
   surface.fill("white")
@@ -410,6 +489,19 @@ def draw_end_screen(surface):
 
   return button_rect
 
+def draw_win_screen(surface):
+  surface.fill("white")
+  title = font.render("Congratulations, You Won!", True, "black")
+  surface.blit(title, (600 // 2 - title.get_width() // 2, 100))
+
+  button_rect = pygame.Rect(250, 400, 100, 50)
+  pygame.draw.rect(surface, "forestgreen", button_rect)
+  button_text = font.render("Exit", True, "white")
+  text_rect = button_text.get_rect(center=button_rect.center)
+  surface.blit(button_text, text_rect)
+
+  return button_rect
+
 def draw_lives(surface, player):
   heart_icon = font.render("♥", True, "red")
   lives_text = font.render(f" {player.lives}", True, "black")
@@ -435,9 +527,9 @@ game_state = "start"
 # qix = Qix(300, 300, 0)
 # sparc = Sparc(300, 200, 2)
 level = 0
-level_maps = [Map(100, ((200, 400), (200, 200), (400, 200), (400, 400)), Player(3, 300, 400, 0, 0, 0), [Qix(300, 300, 0), Sparc(300, 200, 2)]),
-              Map(100, ((150, 450), (150, 150), (450, 150), (450, 450)), Player(3, 300, 450, 0, 0, 0), [Qix(300, 300, 0), Qix(200, 200, 0), Sparc(300, 150, 2)]),
-              Map(100, ((100, 500), (100, 500), (500, 100), (500, 500)), Player(5, 300, 500, 0, 0, 0), [Qix(300, 300, 0), Qix(200, 200, 0), Sparc(300, 100, 2), Sparc(500, 300, 3)])]
+level_maps = [Map(200, ((200, 400), (200, 200), (400, 200), (400, 400)), Player(3, 300, 400, 0, 0, 0), [Qix(300, 300), Sparc(300, 200, 2, 1)], 0.5),
+              Map(300, ((150, 450), (150, 150), (450, 150), (450, 450)), Player(3, 300, 450, 0, 0, 0), [Qix(300, 300), Qix(200, 200), Sparc(300, 150, 2, 1)], 0.5),
+              Map(400, ((100, 500), (100, 100), (500, 100), (500, 500)), Player(5, 300, 500, 0, 0, 0), [Qix(300, 300), Qix(200, 200), Sparc(300, 100, 2, -1), Sparc(500, 300, 3, 1)], 0.5)]
 map = copy.deepcopy(level_maps[level])
 player = map.init_player
 enemies = map.enemies
@@ -448,18 +540,30 @@ while running:
 
   if player.lives <= 0:
     game_state = "over"
+  
+  if map.size**2 - map.area_remaining >= map.size**2 * map.target:
+    if level == 2:
+      game_state = "win"
+    else:
+      level += 1
+      map, player, enemies = reset_level(level)
+
   # poll for events
   # pygame.QUIT event means the user clicked X to close your window
   for event in pygame.event.get():
     if event.type == pygame.QUIT:
       running = False
-    elif event.type == pygame.MOUSEBUTTONDOWN and game_state == "start":
-      if start_button.collidepoint(event.pos):
-        game_state = "playing"
-    elif event.type == pygame.MOUSEBUTTONDOWN and game_state == "over":
-      if play_again_button.collidepoint(event.pos):
-        map, player, enemies = reset_level(level)
-        game_state = "playing"
+    elif event.type == pygame.MOUSEBUTTONDOWN:
+      if game_state == "start":
+        if start_button.collidepoint(event.pos):
+          game_state = "playing"
+      elif game_state == "over":
+        if play_again_button.collidepoint(event.pos):
+          map, player, enemies = reset_level(level)
+          game_state = "playing"
+      elif game_state == "win":
+        if end_button.collidepoint(event.pos):
+          running = False
     elif event.type == pygame.KEYDOWN and game_state == "playing": # if a key is pressed
       if player.incursion:
         if event.key == pygame.K_LEFT:
@@ -500,10 +604,15 @@ while running:
     player.update(screen, map, enemies)
     # print(player.is_touching_enemy(enemies))
     for enemy in enemies:
-      enemy.draw(screen, player)
+      enemy.draw(screen, player, map)
     draw_lives(screen, player)
+    draw_progress_bar(screen, map)
+    # Just to test progression
+    map.area_remaining -= 50
   elif game_state == "over":
     play_again_button = draw_end_screen(screen)
+  elif game_state == "win":
+    end_button = draw_win_screen(screen)
 
 #------------------------------------------------------------
   # pygame.draw.circle(screen, "red", (100, 100), 40)
