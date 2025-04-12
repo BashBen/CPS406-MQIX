@@ -31,13 +31,19 @@ class Map:
 
   def add_edge(self, edge):
     self.edges.append(edge)
-    dx = 0
-    dy = 0
-    for i in range(len(edge)-1):
-      if edge[i][0] != edge[i+1][0] and dx == 0:
-        dx = abs(edge[i][0] - edge[i+1][0])
-      elif edge[i][1] != edge[i+1][1] and dy == 0:
-        dy = abs(edge[i][1] - edge[i+1][1])
+    max_x, min_x, max_y, min_y = 0, 1000, 0, 1000
+    # Find the corners of the incursion
+    for i in range(len(edge)):
+      if edge[i][0] < min_x:
+        min_x = edge[i][0]
+      elif edge[i][0] > max_x:
+        max_x = edge[i][0]
+      elif edge[i][1] < min_y:
+        min_y = edge[i][1]
+      elif edge[i][1] > max_y:
+        max_y = edge[i][1]
+    dx = max_x - min_x
+    dy = max_y - min_y
     area = dx * dy
     self.area_remaining -= area
     if self.area_remaining <= (self.size**2)*self.target:
@@ -210,7 +216,9 @@ class Player:
           if touching_path == True:
             break
           elif type(enemy) == Sparc:
-            continue
+            if enemy.hitbox.clipline((self.path[0], self.path[1])) != ():
+              touching_path = True
+              break
           for i in range(len(self.path)-1):
             if enemy.hitbox.clipline((self.path[i], self.path[i+1])) != ():
               touching_path = True
@@ -463,6 +471,7 @@ def draw_start_screen(surface):
   instructions = [
       font.render("Use Arrow Keys to move", True, "black"),
       font.render("Press Spacebar to start incursion", True, "black"),
+      font.render("Press Escape to pause the game", True, "black"),
       font.render("Claim 50% of the field to win", True, "black")
   ]
   for i, line in enumerate(instructions):
@@ -481,9 +490,9 @@ def draw_end_screen(surface):
   title = font.render("Game Over", True, "black")
   surface.blit(title, (600 // 2 - title.get_width() // 2, 100))
 
-  button_rect = pygame.Rect(250, 400, 100, 50)
-  pygame.draw.rect(surface, "forestgreen", button_rect)
   button_text = font.render("Play Again", True, "white")
+  button_rect = pygame.Rect(250, 400, button_text.get_width() + 30, 50)
+  pygame.draw.rect(surface, "forestgreen", button_rect)
   text_rect = button_text.get_rect(center=button_rect.center)
   surface.blit(button_text, text_rect)
 
@@ -497,6 +506,19 @@ def draw_win_screen(surface):
   button_rect = pygame.Rect(250, 400, 100, 50)
   pygame.draw.rect(surface, "forestgreen", button_rect)
   button_text = font.render("Exit", True, "white")
+  text_rect = button_text.get_rect(center=button_rect.center)
+  surface.blit(button_text, text_rect)
+
+  return button_rect
+
+def draw_pause_screen(surface):
+  surface.fill("white")
+  title = font.render("Game Paused", True, "black")
+  surface.blit(title, (600 // 2 - title.get_width() // 2, 100))
+
+  button_rect = pygame.Rect(250, 400, 100, 50)
+  pygame.draw.rect(surface, "forestgreen", button_rect)
+  button_text = font.render("Resume", True, "white")
   text_rect = button_text.get_rect(center=button_rect.center)
   surface.blit(button_text, text_rect)
 
@@ -564,7 +586,12 @@ while running:
       elif game_state == "win":
         if end_button.collidepoint(event.pos):
           running = False
+      elif game_state == "paused":
+        if pause_button.collidepoint(event.pos):
+          game_state = "playing"
     elif event.type == pygame.KEYDOWN and game_state == "playing": # if a key is pressed
+      if event.key == pygame.K_ESCAPE:
+        game_state = "paused"
       if player.incursion:
         if event.key == pygame.K_LEFT:
           player.vel_x = -1
@@ -608,11 +635,13 @@ while running:
     draw_lives(screen, player)
     draw_progress_bar(screen, map)
     # Just to test progression
-    map.area_remaining -= 50
+    # map.area_remaining -= 50
   elif game_state == "over":
     play_again_button = draw_end_screen(screen)
   elif game_state == "win":
     end_button = draw_win_screen(screen)
+  elif game_state == "paused":
+    pause_button = draw_pause_screen(screen)
 
 #------------------------------------------------------------
   # pygame.draw.circle(screen, "red", (100, 100), 40)
